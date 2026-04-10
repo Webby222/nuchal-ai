@@ -1,36 +1,54 @@
-'use client';
 import { useEffect, useRef } from 'react';
 
-export default function NuchalDashboard() {
+function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
 
+  useEffect(() => {
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { width: 1280, height: 720 } 
+        });
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      } catch (err) {
+        console.error("Camera Error:", err);
+      }
+    }
+    startCamera();
+  }, []);
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-slate-900 text-white p-4">
-      <h1 className="text-3xl font-bold mb-4">Nuchal AI: Clinical Monitor</h1>
+    <div style={{ backgroundColor: '#111827', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'white', fontFamily: 'system-ui, sans-serif' }}>
       
-      <div className="relative border-4 border-blue-500 rounded-lg overflow-hidden w-full max-w-2xl aspect-video bg-black">
-        {/* Webcam Feed will go here */}
-        <video 
-          ref={videoRef}
-          autoPlay 
-          playsInline 
-          className="w-full h-full object-cover"
-        />
-        <div className="absolute top-4 left-4 bg-black/50 p-2 rounded">
-          <p className="text-sm font-mono text-green-400">STATUS: SYSTEM READY</p>
+      <h1 style={{ fontSize: '2.5rem', fontWeight: '800', marginBottom: '30px', color: '#f3f4f6' }}>
+        Nuchal AI: <span style={{ color: '#3b82f6' }}>Clinical Monitor</span>
+      </h1>
+
+      <div style={{ position: 'relative', width: '90%', maxWidth: '800px', aspectRatio: '16/9', background: '#000', borderRadius: '12px', border: '4px solid #1f2937', overflow: 'hidden', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.5)' }}>
+        <video ref={videoRef} autoPlay playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        
+        <div style={{ position: 'absolute', top: '20px', left: '20px', background: 'rgba(0,0,0,0.5)', padding: '8px 15px', borderRadius: '8px', border: '1px solid #22c55e' }}>
+          <p style={{ color: '#22c55e', fontSize: '0.75rem', fontWeight: 'bold', margin: 0, letterSpacing: '1px' }}>
+            ● STATUS: SYSTEM READY
+          </p>
         </div>
       </div>
 
-      <div className="mt-6 grid grid-cols-2 gap-4 w-full max-w-2xl">
-        <div className="bg-slate-800 p-4 rounded-lg border border-slate-700">
-          <p className="text-gray-400 text-sm">CVA Angle</p>
-          <p className="text-2xl font-bold">--°</p>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', width: '90%', maxWidth: '800px', marginTop: '30px' }}>
+        <div style={{ background: '#1f2937', padding: '20px', borderRadius: '12px', border: '1px solid #374151' }}>
+          <p style={{ fontSize: '0.8rem', color: '#9ca3af', marginBottom: '5px' }}>CVA ANGLE</p>
+          <p style={{ fontSize: '2rem', fontWeight: 'bold' }}>--°</p>
         </div>
-        <div className="bg-slate-800 p-4 rounded-lg border border-slate-700">
-          <p className="text-gray-400 text-sm">Posture Status</p>
-          <p className="text-2xl font-bold text-blue-400">CALIBRATING</p>
+        <div style={{ background: '#1f2937', padding: '20px', borderRadius: '12px', border: '1px solid #374151' }}>
+          <p style={{ fontSize: '0.8rem', color: '#9ca3af', marginBottom: '5px' }}>POSTURE STATUS</p>
+          <p style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#3b82f6' }}>CALIBRATING</p>
         </div>
       </div>
-    </main>
+
+    </div>
   );
 }
+
+export default App;
