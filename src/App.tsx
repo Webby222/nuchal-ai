@@ -1,51 +1,36 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+'use client';
+import { useEffect, useRef } from 'react';
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
-
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+export default function NuchalDashboard() {
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
+    <main className="flex min-h-screen flex-col items-center justify-center bg-slate-900 text-white p-4">
+      <h1 className="text-3xl font-bold mb-4">Nuchal AI: Clinical Monitor</h1>
+      
+      <div className="relative border-4 border-blue-500 rounded-lg overflow-hidden w-full max-w-2xl aspect-video bg-black">
+        {/* Webcam Feed will go here */}
+        <video 
+          ref={videoRef}
+          autoPlay 
+          playsInline 
+          className="w-full h-full object-cover"
         />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
+        <div className="absolute top-4 left-4 bg-black/50 p-2 rounded">
+          <p className="text-sm font-mono text-green-400">STATUS: SYSTEM READY</p>
+        </div>
+      </div>
+
+      <div className="mt-6 grid grid-cols-2 gap-4 w-full max-w-2xl">
+        <div className="bg-slate-800 p-4 rounded-lg border border-slate-700">
+          <p className="text-gray-400 text-sm">CVA Angle</p>
+          <p className="text-2xl font-bold">--°</p>
+        </div>
+        <div className="bg-slate-800 p-4 rounded-lg border border-slate-700">
+          <p className="text-gray-400 text-sm">Posture Status</p>
+          <p className="text-2xl font-bold text-blue-400">CALIBRATING</p>
+        </div>
+      </div>
     </main>
   );
 }
-
-export default App;
