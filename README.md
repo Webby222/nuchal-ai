@@ -1,20 +1,24 @@
-# Nuchal AI: Clinical Posture Guardian
-> **Physiology-Driven Intervention for Forward Head Posture (FHP)**
+Nuchal AI: Fix your "Laptop Neck" while you code.
 
-## 1. Clinical Foundation
-* **Research Basis:** Kim et al. (2018).
-* **Intervention Logic:** $$Y = 51.952 - (0.667 \times \text{CVA} + 0.342 \times \text{Flexion})$$
-* **Thresholds:**
-    * **Safe:** $> 52^\circ$
-    * **Warning:** $48^\circ - 52^\circ$
-    * **Intervention (Screen Blur):** $\le 48^\circ$
+Nuchal AI is a clinical-grade biofeedback tool built for developers who "turtle" when they focus. Unlike most trackers that require a side-view camera, Nuchal AI uses a standard front-facing webcam to monitor the Nasal-Vertical Yield (NVY)—the compression of space between your nose and shoulders that signals a flattening cervical curve.
 
-## 2. Technical Stack (The 5-Stack)
-* **Eyes:** MediaPipe (Left-Side Landmarks 7 & 11) via WebAssembly.
-* **Skeleton:** Tauri (Desktop Bridge).
-* **Muscle:** Rust (High-speed math & system-level control).
-* **Skin:** Next.js + TypeScript (Dashboard & UI).
-* **Memory:** SQLite (Posture logs).
+🩺 Why it matters
+When we focus on code, we subconsciously slide our chins toward the screen. This posture flattens the natural curve of the neck (cervical lordosis), putting massive pressure on the C-spine. Nuchal AI catches this shift in real-time, helping you maintain your "Gold Standard" posture.
 
-## 3. Current Status
-Environment setup complete on Acer Nitro. Scaffolding finished with Next.js/Rust integration.
+🚀 Key Features
+Front-View Tracking: Specialized Nasal-Sternal coordinate mapping means you don't need to move your camera to the side of your desk.
+
+Local-First Privacy: MediaPipe processing happens entirely on your machine via Tauri 2.0. No video data ever leaves your device.
+
+Baseline Calibration: Set your optimal upright posture as 100% Stability and receive real-time alerts the moment you drop into the "Critical" zone.
+
+Biofeedback Dashboard: A premium workspace to track your session stability and recovery notes.
+
+🛠️ Tech Stack
+Rust (Backend): High-performance analysis engine for calculating biometric ratios without CPU lag.
+
+React & TypeScript (Frontend): Modern, responsive dashboard with real-time SVG gauge visualization.
+
+Tauri 2.0: Secure, lightweight cross-platform bridge between the vision engine and the UI.
+
+MediaPipe Pose: Custom coordinate mapping for the Nasal-90 tracking axis.
