@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Pose, POSE_CONNECTIONS } from "@mediapipe/pose";
 import { Camera } from "@mediapipe/camera_utils";
-import { drawConnectors, drawLandmarks } from '@mediapipe/drawing_utils';
+import { drawConnectors, drawLandmarks } from "@mediapipe/drawing_utils";
 import { calculatePostureMetrics } from "./PostureMath";
 
 interface PostureData {
@@ -25,18 +25,20 @@ function App() {
   const isCalibratingRef = useRef(false);
   const calibrationFrames = useRef<number[]>([]);
 
-  useEffect(() => { isCalibratingRef.current = isCalibrating; }, [isCalibrating]);
+  useEffect(() => {
+    isCalibratingRef.current = isCalibrating;
+  }, [isCalibrating]);
 
   const processFrame = async (landmarks: any) => {
     try {
       // 1. Get Data from Rust (Backend)
       const data: PostureData = await invoke("analyze_posture", { landmarks });
-      
+
       // 2. Supplement with TS Math (Frontend Helper)
       const metrics = calculatePostureMetrics(
         landmarks[0],   // nose
-        landmarks[152] || landmarks[1], // chin (fallback if 152 isn't in Pose)
-        landmarks[10] || landmarks[4],  // forehead (fallback if 10 isn't in Pose)
+        landmarks[152] || landmarks[1], // chin fallback
+        landmarks[10] || landmarks[4],  // forehead fallback
         landmarks[11],  // left shoulder
         landmarks[12]   // right shoulder
       );
@@ -48,7 +50,7 @@ function App() {
       if (isCalibratingRef.current && data.is_centered) {
         calibrationFrames.current.push(metrics.yieldRatio);
         setCalibCount(calibrationFrames.current.length);
-        
+
         if (calibrationFrames.current.length >= 60) {
           const avg = calibrationFrames.current.reduce((a, b) => a + b) / 60;
           setBaseline(avg);
@@ -68,29 +70,39 @@ function App() {
       const pose = new Pose({
         locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
       });
-      pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
-      
+      pose.setOptions({
+        modelComplexity: 1,
+        smoothLandmarks: true,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+      });
+
       pose.onResults((results) => {
         if (!results.poseLandmarks) return;
         const canvasCtx = canvasRef.current?.getContext("2d");
         if (canvasCtx) {
           canvasCtx.save();
           canvasCtx.clearRect(0, 0, canvasRef.current!.width, canvasRef.current!.height);
-          drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, { color: '#3b82f6', lineWidth: 2 });
-          drawLandmarks(canvasCtx, results.poseLandmarks, { color: '#22c55e', radius: 1 });
+          drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, { color: "#3b82f6", lineWidth: 2 });
+          drawLandmarks(canvasCtx, results.poseLandmarks, { color: "#22c55e", radius: 1 });
           canvasCtx.restore();
         }
         processFrame(results.poseLandmarks);
       });
 
       camera = new Camera(videoRef.current, {
-        onFrame: async () => { if (videoRef.current) await pose.send({ image: videoRef.current }); },
-        width: 1280, height: 720,
+        onFrame: async () => {
+          if (videoRef.current) await pose.send({ image: videoRef.current });
+        },
+        width: 1280,
+        height: 720,
       });
       await camera.start();
     };
     startSystem();
-    return () => { if (camera) camera.stop(); };
+    return () => {
+      if (camera) camera.stop();
+    };
   }, []);
 
   const stabilityScore = baseline ? (currentVes / baseline) * 100 : 100;
@@ -98,69 +110,80 @@ function App() {
   const status = isCalibrating ? "ANALYZING" : baseline ? (stabilityScore > 85 ? "HEALTHY" : "CRITICAL") : "READY";
 
   return (
-    <div style={{ backgroundColor: '#0b0e14', minHeight: '100vh', color: 'white', fontFamily: 'Inter, sans-serif', padding: '24px' }}>
-      
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px', alignItems: 'center' }}>
+    <div style={{ backgroundColor: "#0b0e14", minHeight: "100vh", color: "white", fontFamily: "Inter, sans-serif", padding: "24px" }}>
+      {/* HEADER */}
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "30px", alignItems: "center" }}>
         <div>
-          <h1 style={{ fontSize: '22px', fontWeight: 700, margin: 0 }}>NUCHAL <span style={{ color: '#3b82f6' }}>AI</span></h1>
-          <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Clinical Workspace — Active</p>
+          <h1 style={{ fontSize: "22px", fontWeight: 700, margin: 0 }}>
+            NUCHAL <span style={{ color: "#3b82f6" }}>AI</span>
+          </h1>
+          <p style={{ fontSize: "12px", color: "#64748b", margin: 0 }}>Clinical Workspace — Active</p>
         </div>
-        <button 
+        <button
           onClick={() => setIsCalibrating(true)}
-          style={{ background: '#3b82f6', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer' }}>
+          style={{ background: "#3b82f6", color: "white", border: "none", padding: "8px 16px", borderRadius: "8px", cursor: "pointer" }}
+        >
           {isCalibrating ? `Calibrating... ${calibCount}/60` : "Calibrate Baseline"}
         </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.5fr 1fr', gap: '24px' }}>
-        <div style={{ background: '#161b22', borderRadius: '24px', padding: '20px', border: '1px solid #30363d' }}>
-          <div style={{ position: 'relative', width: '100%', aspectRatio: '1', background: '#000', borderRadius: '18px', overflow: 'hidden' }}>
-            <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
-            <canvas ref={canvasRef} width="1280" height="720" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', transform: 'scaleX(-1)' }} />
+      {/* GRID */}
+      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.5fr 1fr", gap: "24px" }}>
+        {/* LEFT: Video */}
+        <div style={{ background: "#161b22", borderRadius: "24px", padding: "20px", border: "1px solid #30363d" }}>
+          <div style={{ position: "relative", width: "100%", aspectRatio: "1", background: "#000", borderRadius: "18px", overflow: "hidden" }}>
+            <video ref={videoRef} autoPlay playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover", transform: "scaleX(-1)" }} />
+            <canvas ref={canvasRef} width="1280" height="720" style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", transform: "scaleX(-1)" }} />
           </div>
-          <div style={{ marginTop: '20px' }}>
+          <div style={{ marginTop: "20px" }}>
             <h3 style={{ color: status === "CRITICAL" ? "#ef4444" : "#22c55e" }}>STATUS: {status}</h3>
-            <p style={{ color: '#94a3b8', fontSize: '13px' }}>{statusText}</p>
+            <p style={{ color: "#94a3b8", fontSize: "13px" }}>{statusText}</p>
           </div>
         </div>
 
-        <div style={{ background: '#161b22', borderRadius: '24px', padding: '30px', border: '1px solid #30363d', textAlign: 'center' }}>
-          <p style={{ color: '#94a3b8', fontSize: '12px' }}>Stability Metric</p>
-          <div style={{ position: 'relative', width: '280px', height: '140px', margin: '30px auto 0', overflow: 'hidden' }}>
-            <svg width="280" height="280" style={{ transform: 'rotate(-180deg)' }}>
+        {/* CENTER: Gauge */}
+        <div style={{ background: "#161b22", borderRadius: "24px", padding: "30px", border: "1px solid #30363d", textAlign: "center" }}>
+          <p style={{ color: "#94a3b8", fontSize: "12px" }}>Stability Metric</p>
+          <div style={{ position: "relative", width: "280px", height: "140px", margin: "30px auto 0", overflow: "hidden" }}>
+            <svg width="280" height="280" style={{ transform: "rotate(-180deg)" }}>
               <circle cx="140" cy="140" r="120" fill="none" stroke="#1e293b" strokeWidth="18" />
-              <circle cx="140" cy="140" r="120" fill="none" stroke="url(#g1)" strokeWidth="18" 
-                strokeDasharray={`${(gaugeRotation / 180) * 377} 377`} 
-                style={{ transition: 'stroke-dasharray 0.8s ease-out' }} 
-              />
-              <defs><linearGradient id="g1"><stop offset="0%" stopColor="#ef4444"/><stop offset="100%" stopColor="#22c55e"/></linearGradient></defs>
+              <circle cx="140" cy="140" r="120" fill="none" stroke="url(#g1)" strokeWidth="18"
+                strokeDasharray={`${gaugeRotation / 180 * 377} 377`}
+                style={{ transition: "stroke-dasharray 0.8s ease-out" }} />
+              <defs>
+                <linearGradient id="g1">
+                  <stop offset="0%" stopColor="#ef4444" />
+                  <stop offset="100%" stopColor="#22c55e" />
+                </linearGradient>
+              </defs>
             </svg>
-            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, fontSize: '56px', fontWeight: 800 }}>
-              {baseline ? stabilityScore.toFixed(0) : "--"}%
+            <div style={{ position: "absolute", bottom: 0, left: "50%", transform: "translateX(-50%)", color: "white", fontWeight: "700", fontSize: "20px" }}>
+              {stabilityScore.toFixed(1)}%
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginTop: '40px' }}>
-            <div style={{ background: '#0b0e14', padding: '15px', borderRadius: '12px' }}>
-              <p style={{ fontSize: '10px', color: '#64748b' }}>VES YIELD</p>
-              <span style={{ fontSize: '20px', fontWeight: 700 }}>{currentVes.toFixed(3)}</span>
-            </div>
-            <div style={{ background: '#0b0e14', padding: '15px', borderRadius: '12px' }}>
-              <p style={{ fontSize: '10px', color: '#64748b' }}>BASELINE</p>
-              <span style={{ fontSize: '20px', fontWeight: 700 }}>{baseline?.toFixed(3) || "N/A"}</span>
-            </div>
-          </div>
+          <p style={{ color: "#94a3b8", fontSize: "12px", marginTop: "10px" }}>
+            {baseline ? `Baseline: ${baseline.toFixed(2)}` : "No baseline set"}
+          </p>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div style={{ background: '#161b22', borderRadius: '24px', padding: '24px', border: '1px solid #30363d', flex: 1 }}>
-             <h4 style={{ margin: "0 0 10px 0" }}>Clinical Notes</h4>
-             <textarea 
-               style={{ width: '100%', height: '80%', background: '#0b0e14', color: 'white', border: '1px solid #30363d', borderRadius: '8px', padding: '10px' }}
-               value={notes}
-               onChange={(e) => setNotes(e.target.value)}
-               placeholder="Enter observations..."
-             />
-          </div>
+        {/* RIGHT: Configuration */}
+        <div style={{ background: "#161b22", borderRadius: "24px", padding: "20px", border: "1px solid #30363d" }}>
+          <h3 style={{ marginTop: 0, color: "#94a3b8" }}>Configuration</h3>
+          <label style={{ display: "block", marginBottom: "8px", color: "#94a3b8" }}>
+            Blur Threshold (currently set to 45.0°)
+          </label>
+          <input type="range" min="0" max="90" defaultValue="45" style={{ width: "100%" }} />
+          <label style={{ display: "block", marginTop: "20px", marginBottom: "8px", color: "#94a3b8" }}>
+            Sensitivity
+          </label>
+          <input type="range" min="0" max="100" defaultValue="50" style={{ width: "100%" }} />
+          <button style={{ marginTop: "20px", width: "100%", padding: "10px", background: "#3b82f6", color: "white", border: "none", borderRadius: "8px", cursor: "pointer" }}>
+            Recalibrate
+          </button>
+          <h4 style={{ marginTop: "30px", color: "#94a3b8" }}>Intervention Settings</h4>
+          <label style={{ display: "flex", alignItems: "center", gap: "10px", color: "#94a3b8" }}>
+            <input type="checkbox" checked readOnly /> Screen Blur (Active)
+          </label>
         </div>
       </div>
     </div>

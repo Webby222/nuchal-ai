@@ -14,7 +14,7 @@ export const calculatePostureMetrics = (
     y: (leftShoulder.y + rightShoulder.y) / 2,
   };
 
-  // 2. Nasal yield (your original metric)
+  // 2. Nasal yield ratio: vertical distance from nose to shoulder line, normalized by shoulder width
   const shoulderBaselineY = shoulderMid.y;
   const dy = shoulderBaselineY - nose.y;
   const shoulderWidth = Math.abs(leftShoulder.x - rightShoulder.x);
