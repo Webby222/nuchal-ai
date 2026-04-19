@@ -1,61 +1,91 @@
 import { useState, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Pose, POSE_CONNECTIONS } from "@mediapipe/pose";
-import { Camera } from "@mediapipe/camera_utils";
-import { drawConnectors, drawLandmarks } from "@mediapipe/drawing_utils";
-import { calculatePostureMetrics } from "./PostureMath";
+import { PoseLandmarker, FilesetResolver, DrawingUtils } from "@mediapipe/tasks-vision";
+import { calculatePostureMetrics, PostureBaseline } from "./PostureMath";
 
 interface PostureData {
   ves_ratio: number;
   tilt_angle: number;
   pitch_angle: number;
+  horizontal_offset: number;
   is_centered: boolean;
 }
 
 function App() {
-  const [baseline, setBaseline] = useState<number | null>(null);
+  const [baseline, setBaseline] = useState<PostureBaseline | null>(null);
   const [currentVes, setCurrentVes] = useState<number>(0);
-  const [statusText, setStatusText] = useState("READY");
+  const [statusText, setStatusText] = useState("Waiting for calibration...");
+  const [severity, setSeverity] = useState<"healthy" | "mild" | "critical">("healthy");
   const [isCalibrating, setIsCalibrating] = useState(false);
   const [calibCount, setCalibCount] = useState(0);
-  const [notes, setNotes] = useState("");
+  const [blurThreshold, setBlurThreshold] = useState(45);
+  const [sensitivity, setSensitivity] = useState(50);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isCalibratingRef = useRef(false);
-  const calibrationFrames = useRef<number[]>([]);
+  const baselineRef = useRef<PostureBaseline | null>(null);
+  const calibrationFrames = useRef<{
+    yieldRatio: number;
+    horizontalOffset: number;
+    tiltAngle: number;
+  }[]>([]);
 
-  useEffect(() => {
-    isCalibratingRef.current = isCalibrating;
-  }, [isCalibrating]);
+  useEffect(() => { isCalibratingRef.current = isCalibrating; }, [isCalibrating]);
+  useEffect(() => { baselineRef.current = baseline; }, [baseline]);
 
   const processFrame = async (landmarks: any) => {
     try {
-      // 1. Get Data from Rust (Backend)
+      // Visibility check — ignore empty camera
+      const noseVisible = landmarks[0]?.visibility ?? 0;
+      const leftShoulderVisible = landmarks[11]?.visibility ?? 0;
+      const rightShoulderVisible = landmarks[12]?.visibility ?? 0;
+
+      if (noseVisible < 0.5 || leftShoulderVisible < 0.5 || rightShoulderVisible < 0.5) {
+        setStatusText("No person detected");
+        setSeverity("healthy");
+        return;
+      }
+
       const data: PostureData = await invoke("analyze_posture", { landmarks });
 
-      // 2. Supplement with TS Math (Frontend Helper)
       const metrics = calculatePostureMetrics(
-        landmarks[0],   // nose
-        landmarks[152] || landmarks[1], // chin fallback
-        landmarks[10] || landmarks[4],  // forehead fallback
-        landmarks[11],  // left shoulder
-        landmarks[12]   // right shoulder
+        landmarks[0],
+        landmarks[152] || landmarks[1],
+        landmarks[10] || landmarks[4],
+        landmarks[11],
+        landmarks[12],
+        baselineRef.current
       );
 
       setCurrentVes(metrics.yieldRatio);
       setStatusText(metrics.status);
+      setSeverity(metrics.severity);
 
-      // 3. Calibration logic
+      // Calibration
       if (isCalibratingRef.current && data.is_centered) {
-        calibrationFrames.current.push(metrics.yieldRatio);
+        calibrationFrames.current.push({
+          yieldRatio: metrics.yieldRatio,
+          horizontalOffset: metrics.horizontalOffset,
+          tiltAngle: metrics.tiltAngle,
+        });
         setCalibCount(calibrationFrames.current.length);
 
         if (calibrationFrames.current.length >= 60) {
-          const avg = calibrationFrames.current.reduce((a, b) => a + b) / 60;
-          setBaseline(avg);
+          const frames = calibrationFrames.current;
+          const avg = (key: keyof typeof frames[0]) =>
+            frames.reduce((a, b) => a + b[key], 0) / frames.length;
+
+          const newBaseline: PostureBaseline = {
+            yieldRatio: avg("yieldRatio"),
+            horizontalOffset: avg("horizontalOffset"),
+            tiltAngle: avg("tiltAngle"),
+          };
+
+          setBaseline(newBaseline);
           setIsCalibrating(false);
           calibrationFrames.current = [];
+          setCalibCount(0);
         }
       }
     } catch (err) {
@@ -64,50 +94,96 @@ function App() {
   };
 
   useEffect(() => {
-    let camera: any = null;
     const startSystem = async () => {
       if (!videoRef.current || !canvasRef.current) return;
-      const pose = new Pose({
-        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`,
-      });
-      pose.setOptions({
-        modelComplexity: 1,
-        smoothLandmarks: true,
-        minDetectionConfidence: 0.5,
+
+      const vision = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.34/wasm"
+      );
+
+      const poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+          delegate: "GPU"
+        },
+        runningMode: "VIDEO",
+        numPoses: 1,
+        minPoseDetectionConfidence: 0.5,
+        minPosePresenceConfidence: 0.5,
         minTrackingConfidence: 0.5,
       });
 
-      pose.onResults((results) => {
-        if (!results.poseLandmarks) return;
-        const canvasCtx = canvasRef.current?.getContext("2d");
-        if (canvasCtx) {
+      const canvasCtx = canvasRef.current.getContext("2d")!;
+      const drawingUtils = new DrawingUtils(canvasCtx);
+      let lastVideoTime = -1;
+
+      const detect = () => {
+        if (!videoRef.current || !canvasRef.current) return;
+        const video = videoRef.current;
+
+        if (video.currentTime !== lastVideoTime) {
+          lastVideoTime = video.currentTime;
+          const results = poseLandmarker.detectForVideo(video, performance.now());
+
           canvasCtx.save();
-          canvasCtx.clearRect(0, 0, canvasRef.current!.width, canvasRef.current!.height);
-          drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, { color: "#3b82f6", lineWidth: 2 });
-          drawLandmarks(canvasCtx, results.poseLandmarks, { color: "#22c55e", radius: 1 });
+          canvasCtx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+
+          if (results.landmarks && results.landmarks.length > 0) {
+            const landmarks = results.landmarks[0];
+            drawingUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, { color: "#3b82f6", lineWidth: 2 });
+            drawingUtils.drawLandmarks(landmarks, { color: "#22c55e", radius: 1 });
+            processFrame(landmarks);
+          } else {
+            // No landmarks detected — clear status
+            setStatusText("No person detected");
+            setSeverity("healthy");
+          }
+
           canvasCtx.restore();
         }
-        processFrame(results.poseLandmarks);
+
+        requestAnimationFrame(detect);
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 1280, height: 720 }
       });
 
-      camera = new Camera(videoRef.current, {
-        onFrame: async () => {
-          if (videoRef.current) await pose.send({ image: videoRef.current });
-        },
-        width: 1280,
-        height: 720,
-      });
-      await camera.start();
+      videoRef.current.srcObject = stream;
+      videoRef.current.onloadeddata = () => {
+        detect();
+      };
     };
+
     startSystem();
+
     return () => {
-      if (camera) camera.stop();
+      if (videoRef.current?.srcObject) {
+        const tracks = (videoRef.current.srcObject as MediaStream).getTracks();
+        tracks.forEach(track => track.stop());
+      }
     };
   }, []);
 
-  const stabilityScore = baseline ? (currentVes / baseline) * 100 : 100;
-  const gaugeRotation = Math.min(180, Math.max(0, (stabilityScore / 100) * 180));
-  const status = isCalibrating ? "ANALYZING" : baseline ? (stabilityScore > 85 ? "HEALTHY" : "CRITICAL") : "READY";
+  const displayStatus = isCalibrating
+    ? "CALIBRATING"
+    : !baseline
+    ? "READY"
+    : severity === "critical"
+    ? "CRITICAL"
+    : severity === "mild"
+    ? "WARNING"
+    : "HEALTHY";
+
+  const statusColor =
+    displayStatus === "CRITICAL" ? "#ef4444" :
+    displayStatus === "WARNING" ? "#f59e0b" :
+    displayStatus === "HEALTHY" ? "#22c55e" : "#94a3b8";
+
+  const stabilityScore = baseline
+    ? Math.max(0, Math.min(200, (currentVes / baseline.yieldRatio) * 100))
+    : 100;
+  const gaugeRotation = Math.min(180, Math.max(0, (stabilityScore / 200) * 180));
 
   return (
     <div style={{ backgroundColor: "#0b0e14", minHeight: "100vh", color: "white", fontFamily: "Inter, sans-serif", padding: "24px" }}>
@@ -120,10 +196,10 @@ function App() {
           <p style={{ fontSize: "12px", color: "#64748b", margin: 0 }}>Clinical Workspace — Active</p>
         </div>
         <button
-          onClick={() => setIsCalibrating(true)}
+          onClick={() => { setIsCalibrating(true); calibrationFrames.current = []; setCalibCount(0); }}
           style={{ background: "#3b82f6", color: "white", border: "none", padding: "8px 16px", borderRadius: "8px", cursor: "pointer" }}
         >
-          {isCalibrating ? `Calibrating... ${calibCount}/60` : "Calibrate Baseline"}
+          {isCalibrating ? `Calibrating... ${calibCount}/60` : baseline ? "Recalibrate" : "Calibrate Baseline"}
         </button>
       </div>
 
@@ -136,8 +212,8 @@ function App() {
             <canvas ref={canvasRef} width="1280" height="720" style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", transform: "scaleX(-1)" }} />
           </div>
           <div style={{ marginTop: "20px" }}>
-            <h3 style={{ color: status === "CRITICAL" ? "#ef4444" : "#22c55e" }}>STATUS: {status}</h3>
-            <p style={{ color: "#94a3b8", fontSize: "13px" }}>{statusText}</p>
+            <h3 style={{ color: statusColor, margin: "0 0 4px" }}>STATUS: {displayStatus}</h3>
+            <p style={{ color: "#94a3b8", fontSize: "13px", margin: 0 }}>{statusText}</p>
           </div>
         </div>
 
@@ -162,7 +238,7 @@ function App() {
             </div>
           </div>
           <p style={{ color: "#94a3b8", fontSize: "12px", marginTop: "10px" }}>
-            {baseline ? `Baseline: ${baseline.toFixed(2)}` : "No baseline set"}
+            {baseline ? `Baseline: ${baseline.yieldRatio.toFixed(2)}` : "No baseline — please calibrate"}
           </p>
         </div>
 
@@ -170,19 +246,25 @@ function App() {
         <div style={{ background: "#161b22", borderRadius: "24px", padding: "20px", border: "1px solid #30363d" }}>
           <h3 style={{ marginTop: 0, color: "#94a3b8" }}>Configuration</h3>
           <label style={{ display: "block", marginBottom: "8px", color: "#94a3b8" }}>
-            Blur Threshold (currently set to 45.0°)
+            Blur Threshold (currently {blurThreshold}°)
           </label>
-          <input type="range" min="0" max="90" defaultValue="45" style={{ width: "100%" }} />
+          <input type="range" min="0" max="90" value={blurThreshold}
+            onChange={(e) => setBlurThreshold(Number(e.target.value))}
+            style={{ width: "100%" }} />
           <label style={{ display: "block", marginTop: "20px", marginBottom: "8px", color: "#94a3b8" }}>
-            Sensitivity
+            Sensitivity ({sensitivity}%)
           </label>
-          <input type="range" min="0" max="100" defaultValue="50" style={{ width: "100%" }} />
-          <button style={{ marginTop: "20px", width: "100%", padding: "10px", background: "#3b82f6", color: "white", border: "none", borderRadius: "8px", cursor: "pointer" }}>
+          <input type="range" min="0" max="100" value={sensitivity}
+            onChange={(e) => setSensitivity(Number(e.target.value))}
+            style={{ width: "100%" }} />
+          <button
+            onClick={() => { setIsCalibrating(true); calibrationFrames.current = []; setCalibCount(0); }}
+            style={{ marginTop: "20px", width: "100%", padding: "10px", background: "#3b82f6", color: "white", border: "none", borderRadius: "8px", cursor: "pointer" }}>
             Recalibrate
           </button>
           <h4 style={{ marginTop: "30px", color: "#94a3b8" }}>Intervention Settings</h4>
           <label style={{ display: "flex", alignItems: "center", gap: "10px", color: "#94a3b8" }}>
-            <input type="checkbox" checked readOnly /> Screen Blur (Active)
+            <input type="checkbox" defaultChecked /> Screen Blur (Active)
           </label>
         </div>
       </div>

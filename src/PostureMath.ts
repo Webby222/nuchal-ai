@@ -1,54 +1,122 @@
-// posturemaths.ts
-// Improved math for Nuchal AI (Nasal-Vertical Yield + Tilt/Pitch Angles)
+// PostureMath.ts — Nuchal AI
+
+export interface PostureMetrics {
+  yieldRatio: number;
+  horizontalOffset: number;
+  tiltAngle: number;
+  pitchAngle: number;
+  status: string;
+  severity: "healthy" | "mild" | "critical";
+}
+
+export interface PostureBaseline {
+  yieldRatio: number;
+  horizontalOffset: number;
+  tiltAngle: number;
+}
 
 export const calculatePostureMetrics = (
-  nose: { x: number; y: number },
+  nose: { x: number; y: number; visibility?: number },
   chin: { x: number; y: number },
   forehead: { x: number; y: number },
-  leftShoulder: { x: number; y: number },
-  rightShoulder: { x: number; y: number }
-) => {
-  // 1. Shoulder midpoint
+  leftShoulder: { x: number; y: number; visibility?: number },
+  rightShoulder: { x: number; y: number; visibility?: number },
+  baseline: PostureBaseline | null
+): PostureMetrics => {
+
+  // PRIORITY CHECK — visibility
+  const noseVisible = nose.visibility ?? 1;
+  const leftShoulderVisible = leftShoulder.visibility ?? 1;
+  const rightShoulderVisible = rightShoulder.visibility ?? 1;
+
+  if (noseVisible < 0.5 || leftShoulderVisible < 0.5 || rightShoulderVisible < 0.5) {
+    return {
+      yieldRatio: 0,
+      horizontalOffset: 0,
+      tiltAngle: 0,
+      pitchAngle: 0,
+      status: "No person detected",
+      severity: "healthy"
+    };
+  }
+
+  // Core measurements
   const shoulderMid = {
     x: (leftShoulder.x + rightShoulder.x) / 2,
     y: (leftShoulder.y + rightShoulder.y) / 2,
   };
 
-  // 2. Nasal yield ratio: vertical distance from nose to shoulder line, normalized by shoulder width
-  const shoulderBaselineY = shoulderMid.y;
-  const dy = shoulderBaselineY - nose.y;
-  const shoulderWidth = Math.abs(leftShoulder.x - rightShoulder.x);
-  const yieldRatio = dy / shoulderWidth;
+  const shoulderWidth = Math.abs(leftShoulder.x - rightShoulder.x) || 0.001;
 
-  // 3. Tilt angle (nose → shoulders vs vertical)
-  const neckVec = { x: shoulderMid.x - nose.x, y: shoulderMid.y - nose.y };
-  const verticalRef = { x: 0, y: 1 };
-  const tiltAngle =
-    (Math.acos(
-      (neckVec.x * verticalRef.x + neckVec.y * verticalRef.y) /
-        (Math.hypot(neckVec.x, neckVec.y) * Math.hypot(verticalRef.x, verticalRef.y))
-    ) *
-      180) /
-    Math.PI;
+  // SIGNED yield ratio — positive = nose above shoulder (good)
+  const yieldRatio = (shoulderMid.y - nose.y) / shoulderWidth;
 
-  // 4. Pitch angle (chin → forehead vs horizontal)
-  const pitchVec = { x: forehead.x - chin.x, y: forehead.y - chin.y };
-  const horizontalRef = { x: 1, y: 0 };
-  const pitchAngle =
-    (Math.acos(
-      (pitchVec.x * horizontalRef.x + pitchVec.y * horizontalRef.y) /
-        (Math.hypot(pitchVec.x, pitchVec.y) * Math.hypot(horizontalRef.x, horizontalRef.y))
-    ) *
-      180) /
-    Math.PI;
+  // Horizontal offset — nose drift from center
+  const horizontalOffset = (nose.x - shoulderMid.x) / shoulderWidth;
 
-  // 5. Classification
+  // SIGNED tilt — forward head = positive degrees
+  const neckVec = {
+    x: shoulderMid.x - nose.x,
+    y: shoulderMid.y - nose.y
+  };
+  const tiltAngle = Math.atan2(neckVec.x, neckVec.y) * (180 / Math.PI);
+
+  // SIGNED pitch — face up = positive, face down = negative
+  const pitchVec = {
+    x: forehead.x - chin.x,
+    y: forehead.y - chin.y
+  };
+  const pitchAngle = Math.atan2(-pitchVec.y, pitchVec.x) * (180 / Math.PI) - 90;
+
+  // PRIORITY CHECK — lateral tilt (clinical red flag)
+  const shoulderDrop = Math.abs(leftShoulder.y - rightShoulder.y) / shoulderWidth;
+  const lateralNoseDrift = Math.abs(nose.x - shoulderMid.x) / shoulderWidth;
+
+  if (shoulderDrop > 0.20 || lateralNoseDrift > 0.30) {
+    return {
+      yieldRatio,
+      horizontalOffset,
+      tiltAngle,
+      pitchAngle,
+      status: "Critical: Lateral Head Tilt",
+      severity: "critical"
+    };
+  }
+
+  // Status classification
   let status = "Healthy";
-  if (tiltAngle >= 10 && tiltAngle < 20) status = "Mild Forward Head Posture";
-  else if (tiltAngle >= 20) status = "Critical Forward Head Posture";
+  let severity: "healthy" | "mild" | "critical" = "healthy";
 
-  if (pitchAngle > 15) status = "Face-up tilt";
-  else if (pitchAngle < -15) status = "Face-down tilt";
+  if (baseline) {
+    const yieldDeviation = ((yieldRatio - baseline.yieldRatio) / Math.abs(baseline.yieldRatio)) * 100;
+    const tiltDeviation = tiltAngle - baseline.tiltAngle;
 
-  return { yieldRatio, tiltAngle, pitchAngle, status };
+    if (yieldDeviation < -35 || tiltDeviation > 25) {
+      status = "Critical: Forward Head Posture";
+      severity = "critical";
+    } else if (yieldDeviation < -22 || tiltDeviation > 18) {
+      status = "Mild: Forward Head Posture";
+      severity = "mild";
+    } else if (pitchAngle > 28) {
+      status = "Warning: Excessive Extension";
+      severity = "mild";
+    } else if (pitchAngle < -40) {
+      status = "Warning: Head Down";
+      severity = "mild";
+    } else {
+      status = "Healthy";
+      severity = "healthy";
+    }
+  } else {
+    // No baseline — absolute fallback
+    if (tiltAngle > 25) {
+      status = "Critical: Forward Head Posture";
+      severity = "critical";
+    } else if (tiltAngle > 18) {
+      status = "Mild: Forward Head Posture";
+      severity = "mild";
+    }
+  }
+
+  return { yieldRatio, horizontalOffset, tiltAngle, pitchAngle, status, severity };
 };
