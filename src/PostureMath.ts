@@ -100,9 +100,6 @@ export const calculatePostureMetrics = (
     } else if (pitchAngle > 28) {
       status = "Warning: Excessive Extension";
       severity = "mild";
-    } else if (pitchAngle < -40) {
-      status = "Warning: Head Down";
-      severity = "mild";
     } else {
       status = "Healthy";
       severity = "healthy";
