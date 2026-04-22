@@ -9,10 +9,10 @@ pub struct Point3d {
 
 #[derive(Serialize, Debug)]
 pub struct PostureData {
-    pub ves_ratio: f32,        // signed — direction preserved
-    pub tilt_angle: f32,       // signed — forward = positive
-    pub pitch_angle: f32,      // signed — face up = positive
-    pub horizontal_offset: f32,// nose drift from shoulder center
+    pub ves_ratio: f32,
+    pub tilt_angle: f32,
+    pub pitch_angle: f32,
+    pub horizontal_offset: f32,
     pub is_centered: bool,
 }
 
@@ -36,18 +36,13 @@ fn analyze_posture(landmarks: Vec<Point3d>) -> PostureData {
     let shoulder_mid_y = (left_shoulder.y + right_shoulder.y) / 2.0;
     let shoulder_width = (left_shoulder.x - right_shoulder.x).abs().max(0.001);
 
-    // SIGNED — no .abs() — direction matters
     let ves_ratio = (shoulder_mid_y - nose.y) / shoulder_width;
-
-    // Horizontal drift of nose from shoulder center
     let horizontal_offset = (nose.x - shoulder_mid_x) / shoulder_width;
 
-    // Signed tilt — forward head = positive
     let neck_vec_x = shoulder_mid_x - nose.x;
     let neck_vec_y = shoulder_mid_y - nose.y;
     let tilt_angle = neck_vec_x.atan2(neck_vec_y).to_degrees();
 
-    // Pitch from chin(152) and forehead(10) if available
     let pitch_angle = if landmarks.len() > 152 {
         let chin = &landmarks[152];
         let forehead = &landmarks[10];
@@ -58,8 +53,8 @@ fn analyze_posture(landmarks: Vec<Point3d>) -> PostureData {
         0.0
     };
 
-    // is_centered uses horizontal offset now — more meaningful
-    let is_centered = horizontal_offset.abs() < 0.15;
+    // Always true when landmarks detected — TypeScript handles calibration quality
+    let is_centered = true;
 
     PostureData {
         ves_ratio,
@@ -74,7 +69,8 @@ fn analyze_posture(landmarks: Vec<Point3d>) -> PostureData {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![analyze_posture])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .expect("error while running tauri application")
 }
