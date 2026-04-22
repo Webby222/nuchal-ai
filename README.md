@@ -90,7 +90,7 @@ The sensitivity slider adjusts how strictly deviations from baseline are judged:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/nuchal-ai.git
+git clone https://github.com/Webby222/nuchal-ai.git
 cd nuchal-ai
 
 # Install dependencies
