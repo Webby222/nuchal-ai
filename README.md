@@ -180,4 +180,5 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ## 👤 Author
 
-Gift Esohe Eigbefo > B.Sc. Human Physiology | Full-Stack Developer & Technology Instructor > Bridging the gap between Biomechanics and Systems Engineering.
+ Gift Esohe Eigbefo — B.Sc. Human Physiology & Full-Stack Developer. 
+ Bridging the gap between Biomechanics and Systems Engineering.
